@@ -1,0 +1,120 @@
+# ============================================================
+# COMPARATIVO FINAL — TESTES A, B e C
+# PDF: Zambrosi 2017 - Phi foliar
+# ============================================================
+
+import json
+
+print("=" * 65)
+print("🏆 COMPARATIVO FINAL — ZAMBROSI 2017")
+print("=" * 65)
+
+# ============================================================
+# LÊ OS RESULTADOS DOS 3 TESTES
+# ============================================================
+resultados = []
+for letra, arquivo in [
+    ("A", "/content/resultado_zambrosi_A.json"),
+    ("B", "/content/resultado_zambrosi_B.json"),
+    ("C", "/content/resultado_zambrosi_C.json")
+]:
+    try:
+        with open(arquivo, "r") as f:
+            data = json.load(f)
+            resultados.append(data)
+            print(f"✅ Teste {letra} carregado!")
+    except:
+        print(f"❌ Teste {letra} não encontrado — rode o teste_{letra}_zambrosi.py primeiro!")
+
+if not resultados:
+    print("❌ Nenhum resultado encontrado!")
+    raise SystemExit
+
+# ============================================================
+# ESTATÍSTICAS DE CHUNKS
+# ============================================================
+print(f"\n{'='*65}")
+print(f"📊 COMPARATIVO DE CHUNKS")
+print(f"{'='*65}")
+print(f"{'Configuração':<25} {'Total':>6} {'Menor':>6} {'Maior':>6} {'Média':>6} {'ScoreTam':>9}")
+print(f"{'-'*25} {'-'*6} {'-'*6} {'-'*6} {'-'*6} {'-'*9}")
+
+for r in resultados:
+    print(
+        f"{r['nome']:<25} "
+        f"{r['total_chunks']:>6} "
+        f"{r['menor_chunk']:>6} "
+        f"{r['maior_chunk']:>6} "
+        f"{r['media_chunk']:>6} "
+        f"{r.get('score_tamanho', 0):>8.1f}%"
+    )
+
+# ============================================================
+# COMPARATIVO DE SCORES POR PERGUNTA
+# ============================================================
+perguntas_curtas = [
+    "Efeito fosfito em citros PD",
+    "Fosfito e anatomia foliar",
+    "Fosfato vs fosfito plantas",
+    "Fosfito e cloroplastos",
+    "Sintomas toxicidade fosfito",
+    "Deficiência P e crescimento",
+    "Fosfito e ultraestrutura",
+    "P supply e resposta fosfito"
+]
+
+print(f"\n{'='*65}")
+print(f"🔍 SCORES POR PERGUNTA")
+print(f"{'='*65}")
+print(f"{'Pergunta':<30} {'Teste A':>8} {'Teste B':>8} {'Teste C':>8} {'Melhor':>8}")
+print(f"{'-'*30} {'-'*8} {'-'*8} {'-'*8} {'-'*8}")
+
+for i, pergunta in enumerate(perguntas_curtas):
+    scores = [r['scores'][i] for r in resultados if i < len(r.get('scores', []))]
+    nomes  = [r['nome'].split(" - ")[0] for r in resultados]
+
+    if scores:
+        melhor_idx  = scores.index(max(scores))
+        melhor_nome = nomes[melhor_idx]
+        linha       = " ".join(f"{s:>8.4f}" for s in scores)
+        print(f"{pergunta:<30} {linha} {'Teste '+melhor_nome:>8}")
+
+# ============================================================
+# RANKING FINAL
+# ============================================================
+print(f"\n{'='*65}")
+print(f"🏆 RANKING FINAL")
+print(f"{'='*65}")
+
+ranking  = sorted(resultados, key=lambda x: x['media_score'], reverse=True)
+medalhas = ["🥇", "🥈", "🥉"]
+
+for i, r in enumerate(ranking):
+    medalha = medalhas[i] if i < 3 else "  "
+    print(f"\n{medalha} {i+1}º lugar: {r['nome']}")
+    print(f"   Média score busca : {r['media_score']:.4f}")
+    print(f"   Score de tamanho  : {r.get('score_tamanho', 0):.1f}%")
+    print(f"   Total chunks      : {r['total_chunks']}")
+    print(f"   Tamanho médio     : {r['media_chunk']} chars")
+
+# ============================================================
+# RECOMENDAÇÃO CONSIDERANDO OS DOIS SCORES
+# ============================================================
+print(f"\n{'='*65}")
+print(f"💡 ANÁLISE COMBINADA (busca + tamanho)")
+print(f"{'='*65}")
+
+for r in resultados:
+    score_busca = r['media_score']
+    score_tam   = r.get('score_tamanho', 0) / 100
+    score_final = (score_busca * 0.6) + (score_tam * 0.4)
+    print(f"\n   {r['nome']}")
+    print(f"   Score busca   : {score_busca:.4f} (peso 60%)")
+    print(f"   Score tamanho : {r.get('score_tamanho', 0):.1f}%  (peso 40%)")
+    print(f"   Score final   : {score_final:.4f}")
+
+melhor = max(resultados, key=lambda x: (x['media_score'] * 0.6) + (x.get('score_tamanho', 0) / 100 * 0.4))
+print(f"\n{'='*65}")
+print(f"✅ RECOMENDAÇÃO: Use '{melhor['nome']}'")
+print(f"   para processar os 1000+ PDFs em produção!")
+print(f"{'='*65}")
