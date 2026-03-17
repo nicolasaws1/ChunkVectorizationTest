@@ -1,0 +1,128 @@
+# ============================================================
+# COMPARATIVO FINAL — TESTES A, B e C
+# PDF: Mattos (2010) - Elicitores em citros
+# ============================================================
+
+import json
+
+print("=" * 65)
+print("🏆 COMPARATIVO FINAL — MATTOS 2010")
+print("=" * 65)
+
+resultados = []
+for letra, arquivo in [
+    ("A", "/content/resultado_mattos_A.json"),
+    ("B", "/content/resultado_mattos_B.json"),
+    ("C", "/content/resultado_mattos_C.json")
+]:
+    try:
+        with open(arquivo, "r") as f:
+            data = json.load(f)
+            resultados.append(data)
+            print(f"✅ Teste {letra} carregado! ({data.get('idioma','?')})")
+    except:
+        print(f"❌ Teste {letra} não encontrado!")
+
+if not resultados:
+    raise SystemExit
+
+# ============================================================
+# ESTATÍSTICAS
+# ============================================================
+print(f"\n{'='*65}")
+print(f"📊 COMPARATIVO DE CHUNKS")
+print(f"{'='*65}")
+print(f"{'Configuração':<25} {'Total':>6} {'Menor':>6} {'Maior':>6} {'Média':>6} {'ScoreTam':>9}")
+print(f"{'-'*25} {'-'*6} {'-'*6} {'-'*6} {'-'*6} {'-'*9}")
+for r in resultados:
+    print(f"{r['nome']:<25} {r['total_chunks']:>6} {r['menor_chunk']:>6} {r['maior_chunk']:>6} {r['media_chunk']:>6} {r.get('score_tamanho',0):>8.1f}%")
+
+# ============================================================
+# SCORES POR PERGUNTA
+# ============================================================
+perguntas_curtas = [
+    "Elicitores e crescimento",
+    "Elicitores e resistência HLB",
+    "Quais elicitores testados",
+    "Elicitores e produção",
+    "Elicitores e HLB",
+    "Elicitores e metabolismo",
+    "Mecanismos SAR",
+    "Nutrientes e resistência HLB"
+]
+
+print(f"\n{'='*65}")
+print(f"🔍 SCORES POR PERGUNTA")
+print(f"{'='*65}")
+print(f"{'Pergunta':<30} {'Teste A':>8} {'Teste B':>8} {'Teste C':>8} {'Melhor':>8}")
+print(f"{'-'*30} {'-'*8} {'-'*8} {'-'*8} {'-'*8}")
+
+for i, pergunta in enumerate(perguntas_curtas):
+    scores = [r['scores'][i] for r in resultados if i < len(r.get('scores', []))]
+    nomes  = [r['nome'].split(" - ")[0] for r in resultados]
+    if scores:
+        melhor_idx  = scores.index(max(scores))
+        linha       = " ".join(f"{s:>8.4f}" for s in scores)
+        print(f"{pergunta:<30} {linha} {'Teste '+nomes[melhor_idx]:>8}")
+
+# ============================================================
+# RANKING
+# ============================================================
+print(f"\n{'='*65}")
+print(f"🏆 RANKING FINAL")
+print(f"{'='*65}")
+
+ranking  = sorted(resultados, key=lambda x: x['media_score'], reverse=True)
+medalhas = ["🥇", "🥈", "🥉"]
+
+for i, r in enumerate(ranking):
+    medalha = medalhas[i] if i < 3 else "  "
+    print(f"\n{medalha} {i+1}º lugar: {r['nome']}")
+    print(f"   Score busca   : {r['media_score']:.4f}")
+    print(f"   Score tamanho : {r.get('score_tamanho', 0):.1f}%")
+    print(f"   Total chunks  : {r['total_chunks']}")
+    print(f"   Tamanho médio : {r['media_chunk']} chars")
+
+# ============================================================
+# SCORE COMBINADO
+# ============================================================
+print(f"\n{'='*65}")
+print(f"💡 ANÁLISE COMBINADA (busca 60% + tamanho 40%)")
+print(f"{'='*65}")
+
+scores_finais = []
+for r in resultados:
+    sf = (r['media_score'] * 0.6) + (r.get('score_tamanho', 0) / 100 * 0.4)
+    scores_finais.append((r['nome'], sf))
+    print(f"\n   {r['nome']}")
+    print(f"   Score busca   : {r['media_score']:.4f} (60%)")
+    print(f"   Score tamanho : {r.get('score_tamanho',0):.1f}% (40%)")
+    print(f"   Score final   : {sf:.4f}")
+
+melhor = max(scores_finais, key=lambda x: x[1])
+print(f"\n{'='*65}")
+print(f"✅ RECOMENDAÇÃO: Use '{melhor[0]}'")
+print(f"{'='*65}")
+
+# ============================================================
+# COMPARAÇÃO COM ZAMBROSI
+# ============================================================
+print(f"\n{'='*65}")
+print(f"📊 COMPARAÇÃO COM ZAMBROSI 2017 (inglês)")
+print(f"{'='*65}")
+print(f"   Objetivo: verificar se B continua melhor em PDF em português")
+
+for letra in ["A", "B", "C"]:
+    try:
+        with open(f"/content/resultado_zambrosi_{letra}_salvo.json", "r") as f:
+            z = json.load(f)
+        m = next((r for r in resultados if letra in r['nome']), None)
+        if m:
+            diff  = m['media_score'] - z['media_score']
+            sinal = "+" if diff >= 0 else ""
+            print(f"\n   Teste {letra}:")
+            print(f"   Zambrosi 2017 (inglês) : {z['media_score']:.4f}")
+            print(f"   Mattos 2010 (português): {m['media_score']:.4f}")
+            print(f"   Diferença              : {sinal}{diff:.4f}")
+    except:
+        pass
