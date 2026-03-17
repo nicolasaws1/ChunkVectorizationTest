@@ -44,6 +44,22 @@ Utilizado como validação dos resultados obtidos com o PDF do Alva (2005). É u
 
 ---
 
+### Mattos Jr. et al. (2010) — PDF em Português
+> MATTOS JR., D.; QUAGGIO, J. A.; BOARETTO, R. M. **Uso de elicitores para defesa em plantas cítricas**. Citrus Research & Technology, v. 31, n. 1, p. 65-74, 2010.
+
+**Por que escolhemos esse PDF:**
+Este artigo foi selecionado por ser um documento em **português**, permitindo avaliar o comportamento das estratégias de chunking quando a pergunta e o texto estão no mesmo idioma. É uma revisão de **10 páginas** com seções bem definidas e semanticamente ricas sobre elicitores e resistência de citros ao HLB, sendo diretamente relevante para o domínio agrícola do projeto.
+
+**Características do documento:**
+- 10 páginas
+- Artigo de revisão com seções bem definidas
+- Tabelas com dados sobre resistência de plantas
+- Uma figura esquemática
+- Idioma: português (com resumo em inglês)
+- Área: elicitores e resistência sistêmica adquirida em citros
+
+---
+
 ## Experimentos
 
 ### Teste A — Tamanho Fixo (1024 chars, sem overlap)
@@ -56,13 +72,13 @@ Divide o texto em blocos de até 1024 caracteres sem sobreposição entre chunks
 
 ---
 
-### Teste B — Tamanho Fixo com Overlap (512 chars + 128 overlap) ✅ Melhor resultado
+### Teste B — Tamanho Fixo com Overlap (512 chars + 128 overlap)
 Divide em blocos de 512 caracteres repetindo os últimos 128 caracteres do bloco anterior no início do próximo. Garante que nenhuma informação fique perdida na fronteira entre dois chunks.
 
 - ✅ Tamanho ideal para o Qwen3-Embedding (512 tokens)
 - ✅ Overlap preserva contexto entre chunks
-- ✅ 70.6% dos chunks no tamanho ideal (300-800 chars)
-- ✅ Melhor score de busca semântica
+- ✅ ~70% dos chunks no tamanho ideal (300-800 chars)
+- ✅ Melhor resultado em PDFs com seções fragmentadas
 
 ---
 
@@ -70,22 +86,59 @@ Divide em blocos de 512 caracteres repetindo os últimos 128 caracteres do bloco
 Corta nos títulos `##` gerados pelo Docling, criando um chunk por seção do artigo científico (Abstract, Introdução, Métodos, Resultados, Discussão). Seções muito grandes são subdivididas mantendo o título como contexto.
 
 - ✅ Preserva a estrutura do artigo científico
-- ⚠️ Chunks de referências bibliográficas prejudicam a busca
+- ✅ Melhor resultado em PDFs com seções bem definidas
+- ⚠️ Chunks de referências bibliográficas podem prejudicar a busca
 - ⚠️ Chunks muito pequenos em seções curtas
 
 ---
 
 ## Resultados
 
-Perguntas em português sobre textos em inglês (busca cross-lingual com Qwen3).
+### Zambrosi 2017 — PDF curto em inglês com seções fragmentadas
+Perguntas em português sobre texto em inglês (busca cross-lingual).
 
 | Configuração | Score Busca | Score Tamanho | Score Final |
 |---|---|---|---|
-| **B — 512 + Overlap 128** | **0.5815** | **70.6%** | **0.6315** |
+| **B — 512 + Overlap 128** ✅ | **0.5815** | **70.6%** | **0.6315** |
 | C — Por Seção | 0.5782 | 52.9% | 0.5583 |
 | A — Baseline 1024 | 0.5708 | 21.4% | 0.4282 |
 
+---
+
+### Mattos 2010 — PDF curto em português com seções bem definidas
+Perguntas em português sobre texto em português (busca no mesmo idioma).
+
+| Configuração | Score Busca | Score Tamanho | Score Final |
+|---|---|---|---|
+| **C — Por Seção** ✅ | **0.6045** | **70.3%** | **0.6440** |
+| B — 512 + Overlap 128 | 0.5936 | 70.2% | 0.6370 |
+| A — Baseline 1024 | 0.5875 | 28.3% | 0.4655 |
+
 > Score Final = Score Busca (60%) + Score Tamanho (40%)
+
+---
+
+## Conclusões
+
+Os experimentos revelaram duas descobertas importantes:
+
+**1. A melhor estratégia depende da estrutura do PDF**
+
+| Tipo de PDF | Melhor estratégia | Motivo |
+|---|---|---|
+| Seções bem definidas e semânticas | C — Por Seção | Cada seção trata de um único assunto |
+| Seções fragmentadas ou curtas | B — 512 + Overlap | Overlap preserva contexto entre chunks |
+
+**2. Mesmo idioma melhora os scores de busca**
+
+Os scores do Mattos 2010 (português → português) foram consistentemente maiores que os do Zambrosi 2017 (português → inglês), confirmando que o Qwen3-Embedding performa melhor quando pergunta e texto estão no mesmo idioma, mesmo sendo um modelo multilingual.
+
+```
+Score médio Zambrosi (PT → EN): ~0.57
+Score médio Mattos   (PT → PT): ~0.60
+```
+
+**3. O Teste A (Baseline) foi consistentemente o pior** nos dois PDFs por gerar chunks muito grandes que excedem o limite do modelo de embedding (512 tokens).
 
 ---
 
@@ -107,7 +160,7 @@ Perguntas em português sobre textos em inglês (busca cross-lingual com Qwen3).
 ├── requirements.txt
 ├── .gitignore
 ├── teste_A_baseline.py     ← chunk 1024 sem overlap
-├── teste_B_overlap.py      ← chunk 512 + overlap 128 ✅
+├── teste_B_overlap.py      ← chunk 512 + overlap 128
 ├── teste_C_secao.py        ← chunk por seção do artigo
 └── comparativo.py          ← ranking final dos 3 testes
 ```
@@ -141,7 +194,6 @@ Ajuste no início de cada arquivo:
 ```python
 PDF_TESTE = "/content/drive/MyDrive/seu_arquivo.pdf"
 BASE_DIR  = Path("/content/drive/MyDrive/sua_pasta")
-PDF_NOME  = "nome_do_arquivo_sem_extensao"
 OCR_LANG  = ["eng"]  # ou ["por"] para PDFs em português
 
 # Ajuste também as perguntas de teste para o seu PDF
@@ -155,15 +207,13 @@ perguntas = [
 
 ## Próximos Passos
 
-Os experimentos atuais foram realizados em um PDF **longo (52 páginas) com arquitetura simples**. Os próximos testes planejados são:
-
-| Etapa | PDF | Objetivo |
-|---|---|---|
-| ✅ Concluído | PDF longo (~52 páginas), arquitetura simples | Validar as estratégias de chunking |
-| 🔄 Próximo | PDF médio (~20-30 páginas) | Verificar se o Teste B mantém vantagem |
-| 🔄 Futuro | PDF curto (~5-10 páginas) | Avaliar comportamento em documentos pequenos |
-| 🔄 Futuro | PDF com muitas tabelas | Avaliar chunking de conteúdo tabular |
-| 🔄 Futuro | PDF em português | Validar OCR e busca no idioma nativo |
+| Etapa | PDF | Idioma | Status |
+|---|---|---|---|
+| ✅ Concluído | Alva 2005 — longo, arquitetura simples | Inglês | Validação inicial |
+| ✅ Concluído | Zambrosi 2017 — curto, muitas imagens | Inglês | Validação cross-lingual |
+| ✅ Concluído | Mattos 2010 — curto, seções bem definidas | Português | Validação mesmo idioma |
+| 🔄 Próximo | PDF médio (~20-30 páginas) com muitas tabelas | A definir | Avaliar chunking tabular |
+| 🔄 Futuro | PDF longo em português | Português | Validar OCR PT em doc grande |
 
 O objetivo final é encontrar uma estratégia de chunking robusta que funcione bem para diferentes tipos de documentos científicos agrícolas antes de aplicar em produção com mais de 1000 PDFs.
 
@@ -173,4 +223,4 @@ O objetivo final é encontrar uma estratégia de chunking robusta que funcione b
 
 - Os PDFs científicos **não estão incluídos** por questões de direitos autorais
 - Os testes rodam **100% localmente** no Colab sem necessidade de banco vetorial externo
-- O modelo Qwen3-Embedding-0.6B suporta **busca cross-lingual** — perguntas em português encontram textos em inglês corretamente
+- O modelo Qwen3-Embedding-0.6B suporta **busca cross-lingual** — perguntas em português encontram textos em inglês, mas scores são maiores quando ambos estão no mesmo idioma
