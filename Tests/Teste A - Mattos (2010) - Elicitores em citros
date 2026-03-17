@@ -1,0 +1,294 @@
+# ============================================================
+# TESTE A — BASELINE (chunk_size=1024, overlap=0)
+# 100% LOCAL — sem Qdrant, usando FAISS
+# PDF: Mattos (2010) - Elicitores em citros
+# IDIOMA: Português
+# ============================================================
+
+!pip install -q docling pytesseract sentence-transformers faiss-cpu
+!sudo apt-get install -y -qq tesseract-ocr tesseract-ocr-por tesseract-ocr-eng
+
+import os
+import torch
+import faiss
+import numpy as np
+import json
+import statistics
+import shutil
+from pathlib import Path
+from sentence_transformers import SentenceTransformer
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import PdfPipelineOptions, TesseractCliOcrOptions
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling_core.types.doc import ImageRefMode, PictureItem
+
+from google.colab import drive
+drive.mount('/content/drive', force_remount=False)
+
+# ============================================================
+# SALVA RESULTADOS DO ZAMBROSI ANTES DE COMEÇAR
+# ============================================================
+print("📦 Verificando resultados anteriores do Zambrosi...")
+for letra in ["A", "B", "C"]:
+    src = Path(f"/content/resultado_zambrosi_{letra}.json")
+    dst = Path(f"/content/resultado_zambrosi_{letra}_salvo.json")
+    if src.exists() and not dst.exists():
+        shutil.copy(src, dst)
+        print(f"   ✅ Zambrosi {letra} salvo em {dst.name}")
+    elif dst.exists():
+        print(f"   ℹ️  Zambrosi {letra} já salvo anteriormente")
+    else:
+        print(f"   ⚠️  Zambrosi {letra} não encontrado")
+
+# ============================================================
+# CONFIGURAÇÃO DO TESSERACT
+# ============================================================
+candidates = [
+    "/usr/share/tesseract-ocr/5/tessdata",
+    "/usr/share/tesseract-ocr/4.00/tessdata",
+    "/usr/share/tesseract-ocr/tessdata",
+    "/usr/share/tessdata",
+]
+
+tessdata = next((p for p in candidates if os.path.isdir(p)), None)
+if tessdata is None:
+    tessdata = "/usr/share/tesseract-ocr/5/tessdata"
+    os.makedirs(tessdata, exist_ok=True)
+
+os.environ["TESSDATA_PREFIX"] = tessdata
+print(f"\nTESSDATA_PREFIX → {tessdata}")
+
+needed  = ["osd.traineddata", "por.traineddata", "eng.traineddata"]
+missing = [f for f in needed if not os.path.isfile(os.path.join(tessdata, f))]
+
+if missing:
+    print(f"⚠️  Instalando arquivos faltando: {missing}")
+    os.system("apt-get install -y -qq tesseract-ocr-por tesseract-ocr-eng 2>&1")
+    tessdata = next((p for p in candidates if os.path.isdir(p)), tessdata)
+    os.environ["TESSDATA_PREFIX"] = tessdata
+    print("✅ Tesseract configurado!")
+else:
+    print("✅ Tesseract OK!")
+
+# ============================================================
+# CONFIGURAÇÃO — PDF Mattos 2010 (português)
+# ============================================================
+PDF_TESTE  = "/content/drive/MyDrive/Squad2/leo_Squad2/data/Mattos(2010)-Elicitores - Fernanda Bochi Dos Santos.pdf"
+BASE_DIR   = Path("/content/drive/MyDrive/Squad2/leo_Squad2")
+MD_DIR     = BASE_DIR / "testes" / "mattos" / "teste_A" / "md_images"
+DATA_DIR   = BASE_DIR / "testes" / "mattos" / "teste_A" / "data_md"
+CHUNK_SIZE = 1024
+OVERLAP    = 0
+OCR_LANG   = ["por"]  # ✅ Português — artigo em PT
+
+for d in [MD_DIR, DATA_DIR]:
+    d.mkdir(parents=True, exist_ok=True)
+
+print(f"\n📋 TESTE A — Baseline")
+print(f"   PDF        : Mattos 2010 - Elicitores")
+print(f"   Idioma     : Português")
+print(f"   chunk_size : {CHUNK_SIZE}")
+print(f"   overlap    : {OVERLAP}")
+print(f"   banco      : FAISS local (sem Qdrant)")
+
+# ============================================================
+# FUNÇÕES
+# ============================================================
+def clean_text(text):
+    text = text.replace("glyph<c=3,font=/CIDFont+F5>", " ")
+    text = text.replace("glyph<c=3,font=/CIDFont+F8>", " ")
+    text = text.replace("&gt;", "").replace("&lt;", "")
+    return text
+
+def pdf_to_markdown(file_path):
+    base_stem = Path(file_path).stem
+    md_path   = DATA_DIR / f"{base_stem}.md"
+
+    if md_path.exists():
+        print(f"ℹ️  Markdown já existe, reutilizando!")
+        return str(md_path)
+
+    pipeline_options = PdfPipelineOptions()
+    pipeline_options.do_ocr = True
+    pipeline_options.do_table_structure = True
+    pipeline_options.table_structure_options.do_cell_matching = True
+    # ✅ OCR em português para este artigo
+    pipeline_options.ocr_options = TesseractCliOcrOptions(lang=OCR_LANG, force_full_page_ocr=True)
+    pipeline_options.generate_picture_images = True
+
+    converter = DocumentConverter(
+        format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options)}
+    )
+
+    print(f"🔄 Convertendo PDF...")
+    print(f"   Tamanho: {os.path.getsize(file_path)/(1024*1024):.2f} MB")
+    result = converter.convert(file_path).document
+
+    for text in getattr(result, "texts", []):
+        text.orig = clean_text(getattr(text, "orig", ""))
+    for table in getattr(result, "tables", []):
+        for cell in getattr(table.data, "table_cells", []):
+            cell.text = clean_text(getattr(cell, "text", ""))
+
+    picture_counter = 0
+    for element, _ in result.iterate_items():
+        if isinstance(element, PictureItem):
+            picture_counter += 1
+            img_path = MD_DIR / f"{base_stem}-picture-{picture_counter}.png"
+            with img_path.open("wb") as fp:
+                element.get_image(result).save(fp, "PNG")
+
+    print(f"   {picture_counter} imagens salvas")
+    result_md = result.export_to_markdown()
+    with md_path.open("w", encoding="utf-8") as f:
+        f.write(result_md)
+
+    print(f"✅ Markdown salvo em: {md_path}")
+    print(f"   Nome do arquivo: {md_path.name}")
+    return str(md_path)
+
+def fazer_chunks_A(md_path):
+    """Chunk fixo 1024 sem overlap — baseline"""
+    with open(md_path, 'r', encoding='utf-8') as f:
+        content = f.readlines()
+
+    content = [p.strip() for p in content]
+    content = [p for p in content if p.replace('-','').replace('|','').replace(' ','').strip()]
+
+    chunks        = []
+    current_chunk = ""
+
+    for i, paragraph in enumerate(content):
+        if i == 0:
+            current_chunk += paragraph
+            continue
+
+        if paragraph.startswith("| ") and paragraph.endswith(" |"):
+            current_chunk += "\n" + paragraph
+            continue
+
+        if len(current_chunk) + len(paragraph) + 1 > CHUNK_SIZE:
+            if current_chunk:
+                chunks.append(current_chunk)
+            current_chunk = paragraph
+        else:
+            current_chunk += "\n" + paragraph
+
+    if current_chunk:
+        chunks.append(current_chunk)
+
+    return chunks
+
+def avaliar_tamanho_chunks(chunks, nome):
+    tamanhos  = [len(c) for c in chunks]
+    ideal     = sum(1 for t in tamanhos if 300 <= t <= 800)
+    score_tam = (ideal / len(chunks)) * 100
+    print(f"\n{'='*55}")
+    print(f"📏 AVALIAÇÃO DE TAMANHO — {nome}")
+    print(f"{'='*55}")
+    print(f"   Total chunks  : {len(chunks)}")
+    print(f"   Menor         : {min(tamanhos)} chars")
+    print(f"   Maior         : {max(tamanhos)} chars")
+    print(f"   Média         : {statistics.mean(tamanhos):.0f} chars")
+    print(f"   Mediana       : {statistics.median(tamanhos):.0f} chars")
+    print(f"   Desvio padrão : {statistics.stdev(tamanhos):.0f} chars")
+    print(f"\n   Distribuição:")
+    print(f"   < 200  : {sum(1 for t in tamanhos if t < 200):>4} ⚠️")
+    print(f"   200-400: {sum(1 for t in tamanhos if 200 <= t < 400):>4}")
+    print(f"   400-600: {sum(1 for t in tamanhos if 400 <= t < 600):>4} ✅")
+    print(f"   600-800: {sum(1 for t in tamanhos if 600 <= t < 800):>4} ✅")
+    print(f"   800-1024:{sum(1 for t in tamanhos if 800 <= t < 1024):>4}")
+    print(f"   > 1024 : {sum(1 for t in tamanhos if t > 1024):>4} ⚠️")
+    print(f"\n   ⭐ Score tamanho: {score_tam:.1f}% ({ideal}/{len(chunks)} no ideal)")
+    return score_tam
+
+# ============================================================
+# EMBEDDING + FAISS LOCAL
+# ============================================================
+print("\n🔄 Carregando modelo de embedding (Qwen3 multilingual)...")
+model = SentenceTransformer("Qwen/Qwen3-Embedding-0.6B")
+print("✅ Modelo carregado!")
+
+def criar_indice_faiss(chunks):
+    print(f"🔄 Gerando embeddings para {len(chunks)} chunks...")
+    embeddings = model.encode(chunks, show_progress_bar=True)
+    embeddings = np.array(embeddings).astype('float32')
+    faiss.normalize_L2(embeddings)
+    index = faiss.IndexFlatIP(embeddings.shape[1])
+    index.add(embeddings)
+    print(f"✅ Índice FAISS criado com {index.ntotal} vetores!")
+    return index
+
+def buscar_faiss(pergunta, index, chunks):
+    vetor = model.encode([pergunta])
+    vetor = np.array(vetor).astype('float32')
+    faiss.normalize_L2(vetor)
+    scores, indices = index.search(vetor, 1)
+    return {"score": float(scores[0][0]), "chunk": chunks[indices[0][0]], "chars": len(chunks[indices[0][0]])}
+
+# ============================================================
+# EXECUÇÃO
+# ============================================================
+md_path   = pdf_to_markdown(PDF_TESTE)
+chunks    = fazer_chunks_A(md_path)
+score_tam = avaliar_tamanho_chunks(chunks, "TESTE A — Baseline 1024")
+index_A   = criar_indice_faiss(chunks)
+
+# ============================================================
+# PERGUNTAS — elicitores em citros (português → português)
+# ============================================================
+perguntas = [
+    "Qual o efeito dos elicitores no crescimento de citros?",
+    "Como os elicitores afetam a resistência das plantas ao HLB?",
+    "Quais elicitores foram testados em citros na Flórida?",
+    "Como os elicitores influenciam a produção de citros?",
+    "Qual a relação entre elicitores e o huanglongbing?",
+    "Como os elicitores afetam o metabolismo das plantas cítricas?",
+    "Quais são os mecanismos de ação da resistência sistêmica adquirida?",
+    "Como a aplicação de nutrientes afeta a resistência ao HLB?"
+]
+
+print(f"\n{'='*60}")
+print(f"🔍 RESULTADOS — TESTE A (Baseline 1024)")
+print(f"   Perguntas em português | Texto em português")
+print(f"   Modelo: Qwen3-Embedding-0.6B (multilingual)")
+print(f"{'='*60}")
+
+scores_A = []
+for pergunta in perguntas:
+    r         = buscar_faiss(pergunta, index_A, chunks)
+    relevante = "✅" if r['score'] > 0.55 else "⚠️" if r['score'] > 0.45 else "❌"
+    scores_A.append(r['score'])
+    print(f"\n❓ {pergunta}")
+    print(f"   Score : {r['score']:.4f} {relevante} | Chars: {r['chars']}")
+    print(f"   Texto : {r['chunk'][:200]}...")
+    print("-"*60)
+
+media_score = sum(scores_A)/len(scores_A)
+print(f"\n📈 MÉDIA  : {media_score:.4f}")
+print(f"   Tamanho: {score_tam:.1f}%")
+print(f"   ✅ bons : {sum(1 for s in scores_A if s > 0.55)}/{len(scores_A)}")
+print(f"   ⚠️ ok   : {sum(1 for s in scores_A if 0.45 <= s <= 0.55)}/{len(scores_A)}")
+print(f"   ❌ ruins: {sum(1 for s in scores_A if s < 0.45)}/{len(scores_A)}")
+
+# ============================================================
+# IMPRIME O NOME EXATO DO MARKDOWN GERADO
+# ============================================================
+md_nome = Path(md_path).stem
+print(f"\n📝 Nome do markdown gerado: '{md_nome}'")
+print(f"   Use esse nome exato no PDF_NOME dos testes B e C!")
+
+with open("/content/resultado_mattos_A.json", "w") as f:
+    json.dump({
+        "nome": "A - Baseline 1024", "pdf": "Mattos 2010 - Elicitores",
+        "idioma": "português",
+        "modelo": "Qwen3-Embedding-0.6B", "chunk_size": CHUNK_SIZE, "overlap": OVERLAP,
+        "total_chunks": len(chunks), "menor_chunk": min(len(c) for c in chunks),
+        "maior_chunk": max(len(c) for c in chunks), "media_chunk": sum(len(c) for c in chunks)//len(chunks),
+        "score_tamanho": score_tam, "scores": scores_A, "media_score": media_score,
+        "md_nome": md_nome
+    }, f, ensure_ascii=False, indent=2)
+
+print(f"\n✅ TESTE A CONCLUÍDO!")
+print(f"   Salvo em /content/resultado_mattos_A.json")
+print(f"   Rode agora: teste_B_mattos.py")
